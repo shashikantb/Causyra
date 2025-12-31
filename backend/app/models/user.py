@@ -3,6 +3,7 @@ from typing import Optional
 
 class User(BaseModel):
     username: str
+    email: Optional[str] = None
     role: str
     allowed_apps: list[str] = []
 
@@ -11,6 +12,7 @@ class UserInDB(User):
 
 class UserCreate(BaseModel):
     username: str
+    email: Optional[str] = None
     password: str
     role: str = "READ"  # Default role
 
@@ -20,6 +22,9 @@ class PasswordChange(BaseModel):
 
 class UserScopeUpdate(BaseModel):
     allowed_apps: list[str]
+
+class UserRoleUpdate(BaseModel):
+    role: str
 
 class Token(BaseModel):
     access_token: str

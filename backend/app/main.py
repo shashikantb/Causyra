@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Body, Depends, status
+from fastapi import FastAPI, HTTPException, Body, Depends, status, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -9,7 +9,7 @@ from .models.application import Application, ApplicationCreate, Incident, LogSou
 from .services.application_service import ApplicationService
 from .services.rca_engine import RCAEngine
 from .auth import Token, authenticate_user, create_access_token, get_current_active_user, get_current_admin_user, ACCESS_TOKEN_EXPIRE_MINUTES, user_service
-from .models.user import User, UserCreate, PasswordChange, UserScopeUpdate
+from .models.user import User, UserCreate, PasswordChange, UserScopeUpdate, UserRoleUpdate
 
 app = FastAPI(
     title="RCA AI Engine",
@@ -91,6 +91,13 @@ async def update_user_scope(username: str, scope_update: UserScopeUpdate, curren
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
     return {"status": "scope updated"}
+
+@app.put("/users/{username}/role")
+async def update_user_role(username: str, role_update: UserRoleUpdate, current_user: User = Depends(get_current_admin_user)):
+    success = user_service.update_user_role(username, role_update.role)
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"status": "role updated"}
 
 @app.get("/")
 async def root():
@@ -222,6 +229,16 @@ async def agent_ingest(app_id: str, payload: dict):
     
     for line in lines:
         app_service.add_log_entry(app_id, line, path)
+        # Broadcast log entry
+        await manager.broadcast({
+            "type": "log",
+            "log": {
+                "content": line,
+                "source": path,
+                "timestamp": str(timedelta(seconds=0) + app_service.get_application(app_id).last_seen) if app_service.get_application(app_id) else None
+            }
+        }, app_id)
+
         analysis = rca_engine.analyze_logs(line)
         root = analysis.get("root_cause", "Unknown Anomaly")
         if root != "Unknown Anomaly":

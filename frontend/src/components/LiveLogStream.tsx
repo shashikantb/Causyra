@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { AppService, type LogEntry, type LogSummary } from '../services/api';
+import { AppService, type LogEntry, type LogSummary, API_BASE_URL } from '../services/api';
+import LogDistributionChart from './charts/LogDistributionChart';
+import Card from './common/Card';
 
 interface LiveLogStreamProps {
   appId: string;
@@ -8,7 +10,8 @@ interface LiveLogStreamProps {
 const LiveLogStream: React.FC<LiveLogStreamProps> = ({ appId }) => {
   const [logsBySource, setLogsBySource] = useState<Record<string, LogEntry[]>>({});
   const [summary, setSummary] = useState<LogSummary | null>(null);
-  const intervalRef = useRef<number | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -29,100 +32,132 @@ const LiveLogStream: React.FC<LiveLogStreamProps> = ({ appId }) => {
 
   useEffect(() => {
     fetchData();
-    intervalRef.current = window.setInterval(fetchData, 2000);
+
+    // WebSocket Connection
+    const wsUrl = API_BASE_URL.replace(/^http/, 'ws') + `/ws/logs/${appId}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('Connected to WebSocket');
+      setWsConnected(true);
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'log') {
+        const log = data.log;
+        setLogsBySource(prev => {
+          const next = { ...prev };
+          if (!next[log.source]) next[log.source] = [];
+          // Prepend new log
+          next[log.source] = [log, ...next[log.source]].slice(0, 50); // Keep last 50
+          return next;
+        });
+        // Update summary count locally for immediate feedback
+        setSummary(prev => {
+           if (!prev) return null;
+           const newCounts = { ...prev.counts };
+           newCounts[log.source] = (newCounts[log.source] || 0) + 1;
+           return { ...prev, counts: newCounts, last_seen: new Date().toISOString() };
+        });
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('Disconnected from WebSocket');
+      setWsConnected(false);
+    };
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
     };
   }, [appId, fetchData]);
 
   const isLive = useMemo(() => {
-    if (!summary?.last_seen) return false;
-    const last = new Date(summary.last_seen).getTime();
-    return Date.now() - last < 12000;
-  }, [summary]);
+     return wsConnected;
+  }, [wsConnected]);
 
-  const totalCount = useMemo(() => {
-    if (!summary?.counts) return 0;
-    return Object.values(summary.counts).reduce((a, b) => a + b, 0);
-  }, [summary]);
-
-  const pieSlices = useMemo(() => {
-    if (!summary?.counts || totalCount === 0) return [];
-    const entries = Object.entries(summary.counts);
-    let acc = 0;
-    return entries.map(([src, count], idx) => {
-      const start = acc / totalCount * 2 * Math.PI;
-      const end = (acc + count) / totalCount * 2 * Math.PI;
-      acc += count;
-      const r = 40;
-      const cx = 50, cy = 50;
-      const x1 = cx + r * Math.sin(start);
-      const y1 = cy - r * Math.cos(start);
-      const x2 = cx + r * Math.sin(end);
-      const y2 = cy - r * Math.cos(end);
-      const largeArc = end - start > Math.PI ? 1 : 0;
-      const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
-      const colors = ["#4caf50","#007bff","#ff9800","#9c27b0","#e91e63","#00bcd4","#8bc34a","#795548"];
-      return { d, color: colors[idx % colors.length], label: src, value: count };
-    });
-  }, [summary, totalCount]);
+  const getLogColor = (content: string) => {
+    const lower = content.toLowerCase();
+    if (lower.includes('error') || lower.includes('fail') || lower.includes('exception')) return '#ef4444'; // Red
+    if (lower.includes('warn')) return '#f59e0b'; // Amber
+    if (lower.includes('info')) return '#3b82f6'; // Blue
+    return 'var(--text-secondary)'; // Default
+  };
 
   return (
-    <div className="log-stream-container">
-      <div className="log-stream-header">
-        <h3>Live Log Stream</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button className="log-refresh-btn" onClick={fetchData}>Refresh</button>
-          <span className="log-live-indicator" style={{ color: isLive ? '#4caf50' : '#ff5252' }}>
-            ● {isLive ? 'Live' : 'Idle'}
-          </span>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 10 }}>
-        <svg width="120" height="120" viewBox="0 0 100 100">
-          {pieSlices.map((s, i) => (
-            <path key={i} d={s.d} fill={s.color} />
-          ))}
-        </svg>
-        <div style={{ fontSize: 12 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Log Volume by Source (last 50/each)</div>
-          {pieSlices.length === 0 ? (
-            <div style={{ color: '#888' }}>No log data</div>
-          ) : (
-            pieSlices.map((s, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 10, height: 10, background: s.color, display: 'inline-block' }} />
-                <span style={{ color: '#fff' }}>{s.label}</span>
-                <span style={{ color: '#888' }}>({s.value})</span>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {Object.keys(logsBySource).length === 0 ? (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-          <p style={{ color: isLive ? '#4caf50' : '#888', fontStyle: 'italic' }}>
-            {isLive ? 'Agent Active. Waiting for new logs...' : 'Waiting for connection from agent...'}
-          </p>
-        </div>
-      ) : (
-        <div>
-          {Object.entries(logsBySource).map(([src, entries]) => (
-            <div key={src} style={{ marginBottom: 12 }}>
-              <div style={{ color: '#569cd6', fontWeight: 700, marginBottom: 4 }}>{src}</div>
-              {entries.slice(0, 10).map((log, index) => (
-                <div key={index} className="log-entry">
-                  <span className="log-timestamp">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
-                  <span className="log-content">{log.content}</span>
-                </div>
-              ))}
+    <div className="log-stream-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', background: 'transparent', padding: 0, border: 'none', boxShadow: 'none' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem' }}>
+        <Card title="Live Log Stream">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+               <span className="log-live-indicator" style={{ color: isLive ? '#22c55e' : '#ef4444', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isLive ? '#22c55e' : '#ef4444' }}></span>
+                {isLive ? 'Live' : 'Offline'}
+              </span>
             </div>
-          ))}
-        </div>
-      )}
+            <button 
+              className="log-refresh-btn" 
+              onClick={fetchData}
+              style={{
+                padding: '4px 12px',
+                borderRadius: '4px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-app)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer'
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+
+          <div style={{ 
+            backgroundColor: '#0f172a', 
+            color: '#e2e8f0', 
+            padding: '1rem', 
+            borderRadius: 'var(--border-radius)', 
+            height: '400px', 
+            overflowY: 'auto',
+            fontFamily: 'monospace',
+            fontSize: '0.85rem',
+            border: '1px solid var(--border-color)'
+          }}>
+            {Object.keys(logsBySource).length === 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                <p style={{ color: '#64748b', fontStyle: 'italic' }}>
+                  {isLive ? 'Agent Active. Waiting for new logs...' : 'Waiting for connection from agent...'}
+                </p>
+              </div>
+            ) : (
+              <div>
+                {Object.entries(logsBySource).map(([src, entries]) => (
+                  <div key={src} style={{ marginBottom: 12 }}>
+                    <div style={{ color: '#38bdf8', fontWeight: 700, marginBottom: 4, borderBottom: '1px solid #1e293b', paddingBottom: '2px' }}>{src}</div>
+                    {entries.slice(0, 10).map((log, index) => (
+                      <div key={index} className="log-entry" style={{ display: 'flex', gap: '8px', padding: '2px 0' }}>
+                        <span className="log-timestamp" style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
+                          [{new Date(log.timestamp).toLocaleTimeString()}]
+                        </span>
+                        <span className="log-content" style={{ color: getLogColor(log.content) }}>
+                          {log.content}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card title="Log Volume">
+          <LogDistributionChart data={summary?.counts || {}} />
+        </Card>
+      </div>
     </div>
   );
 };

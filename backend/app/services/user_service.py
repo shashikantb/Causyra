@@ -54,6 +54,7 @@ class UserService:
         
         new_user = UserInDB(
             username=user_create.username,
+            email=user_create.email,
             role=user_create.role,
             password_hash=pwd_context.hash(user_create.password)
         )
@@ -76,6 +77,15 @@ class UserService:
             return False
         
         user.allowed_apps = allowed_apps
+        self._save_users()
+        return True
+
+    def update_user_role(self, username: str, role: str) -> bool:
+        user = self.users.get(username)
+        if not user:
+            return False
+        
+        user.role = role
         self._save_users()
         return True
 

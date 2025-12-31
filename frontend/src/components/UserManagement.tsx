@@ -8,28 +8,34 @@ interface UserManagementProps {
 const UserManagement: React.FC<UserManagementProps> = ({ currentUser: propCurrentUser }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(propCurrentUser);
+  
+  // Modals state
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showChangePwd, setShowChangePwd] = useState<{username: string, isOwn: boolean} | null>(null);
   const [showScopeModal, setShowScopeModal] = useState<User | null>(null);
+  const [showRoleModal, setShowRoleModal] = useState<User | null>(null);
+  const [showManageModal, setShowManageModal] = useState<User | null>(null);
+
   const [allApps, setAllApps] = useState<Application[]>([]);
   const [selectedApps, setSelectedApps] = useState<string[]>([]);
   
   // Form states
   const [newUsername, setNewUsername] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('READ');
+  
+  const [selectedRole, setSelectedRole] = useState('READ');
+
   const [oldPassword, setOldPassword] = useState(''); // Only for own password
   const [pwdError, setPwdError] = useState('');
   const [pwdSuccess, setPwdSuccess] = useState('');
 
   useEffect(() => {
     fetchUsers();
-    // We can update currentUser if needed, or rely on prop
-    // fetchCurrentUser(); 
     fetchApps();
   }, []);
 
-  // Update local currentUser when prop changes
   useEffect(() => {
     setCurrentUser(propCurrentUser);
   }, [propCurrentUser]);
@@ -52,21 +58,13 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser: propCurren
     }
   };
 
-  const fetchCurrentUser = async () => {
-    try {
-      const user = await UserService.getCurrentUser();
-      setCurrentUser(user);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await UserService.createUser(newUsername, newPassword, newRole);
+      await UserService.createUser(newUsername, newEmail, newPassword, newRole);
       setShowCreateForm(false);
       setNewUsername('');
+      setNewEmail('');
       setNewPassword('');
       fetchUsers();
     } catch (e) {
@@ -110,51 +108,81 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser: propCurren
     }
   };
 
+  const handleSaveRole = async () => {
+    if (!showRoleModal) return;
+    try {
+      await UserService.updateUserRole(showRoleModal.username, selectedRole);
+      setShowRoleModal(null);
+      fetchUsers();
+    } catch (e) {
+        alert('Failed to update role');
+    }
+  };
+
+  const openManageModal = (user: User) => {
+      setShowManageModal(user);
+  };
+
   return (
     <div className="user-management">
       <div className="um-header">
-        <h2>User Management</h2>
+        <div>
+            <h2>User Management</h2>
+            <p className="subtitle">Manage users, roles, and access scopes</p>
+        </div>
         <div className="um-actions">
           {currentUser?.role === 'ADMIN' && (
-            <button className="create-btn" onClick={() => setShowCreateForm(true)}>Create New User</button>
+            <button className="primary" onClick={() => setShowCreateForm(true)}>+ New User</button>
           )}
-          <button className="change-pwd-btn" onClick={() => setShowChangePwd({username: currentUser?.username || '', isOwn: true})}>
+          <button className="secondary" onClick={() => setShowChangePwd({username: currentUser?.username || '', isOwn: true})}>
             Change My Password
           </button>
         </div>
       </div>
 
-      <div className="user-list">
-        {users.map(user => (
-          <div key={user.username} className="user-card">
-            <div className="user-info">
-              <span className="username">{user.username}</span>
-              <span className={`role-badge ${user.role.toLowerCase()}`}>{user.role}</span>
-            </div>
-            {currentUser?.role === 'ADMIN' && user.username !== currentUser.username && (
-              <button 
-                className="sm-btn"
-                onClick={() => setShowChangePwd({username: user.username, isOwn: false})}
-              >
-                Reset Password
-              </button>
-            )}
-            {currentUser?.role === 'ADMIN' && user.role !== 'ADMIN' && (
-              <button 
-                className="sm-btn"
-                style={{marginLeft: '10px'}}
-                onClick={() => {
-                    setShowScopeModal(user);
-                    setSelectedApps(user.allowed_apps || []);
-                }}
-              >
-                Manage Scope
-              </button>
-            )}
-          </div>
-        ))}
+      <div className="card">
+        <table className="user-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Role</th>
+              <th>Scope</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map(user => (
+              <tr key={user.username}>
+                <td>
+                  <strong>{user.username}</strong>
+                  <div className="muted">{user.email || 'No email'}</div>
+                </td>
+                <td>
+                  <span className={`badge ${user.role.toLowerCase()}`}>{user.role}</span>
+                </td>
+                <td>
+                    {user.role === 'ADMIN' ? 'All Access' : (
+                         user.allowed_apps && user.allowed_apps.length > 0 
+                         ? `${user.allowed_apps.length} Apps` 
+                         : 'No Access'
+                    )}
+                </td>
+                <td>
+                  <span className="status active">Active</span>
+                </td>
+                <td>
+                  {currentUser?.role === 'ADMIN' && user.username !== currentUser.username && (
+                      <button className="link-btn" onClick={() => openManageModal(user)}>Manage</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
+      {/* Create User Modal */}
       {showCreateForm && (
         <div className="modal-overlay">
           <div className="modal">
@@ -163,6 +191,10 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser: propCurren
               <div className="form-group">
                 <label>Username</label>
                 <input value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
+              </div>
+              <div className="form-group">
+                <label>Email</label>
+                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
               </div>
               <div className="form-group">
                 <label>Password</label>
@@ -185,10 +217,66 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser: propCurren
         </div>
       )}
 
+      {/* Manage User Modal (The Menu) */}
+      {showManageModal && (
+          <div className="modal-overlay" onClick={() => setShowManageModal(null)}>
+              <div className="modal" onClick={e => e.stopPropagation()}>
+                  <h3>Manage User: {showManageModal.username}</h3>
+                  <div className="manage-actions-list">
+                      <button className="action-btn" onClick={() => {
+                          setShowManageModal(null);
+                          setShowChangePwd({username: showManageModal.username, isOwn: false});
+                      }}>
+                          Reset Password
+                      </button>
+                      <button className="action-btn" onClick={() => {
+                          setShowManageModal(null);
+                          setShowScopeModal(showManageModal);
+                          setSelectedApps(showManageModal.allowed_apps || []);
+                      }}>
+                          Manage Scope
+                      </button>
+                      <button className="action-btn" onClick={() => {
+                          setShowManageModal(null);
+                          setShowRoleModal(showManageModal);
+                          setSelectedRole(showManageModal.role);
+                      }}>
+                          Change Role
+                      </button>
+                  </div>
+                  <div className="modal-actions">
+                      <button onClick={() => setShowManageModal(null)}>Close</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Role Change Modal */}
+      {showRoleModal && (
+          <div className="modal-overlay">
+              <div className="modal">
+                  <h3>Change Role: {showRoleModal.username}</h3>
+                  <div className="form-group">
+                      <label>Role</label>
+                      <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)}>
+                          <option value="READ">READ</option>
+                          <option value="WRITE">WRITE</option>
+                          <option value="ADMIN">ADMIN</option>
+                      </select>
+                  </div>
+                  <div className="modal-actions">
+                      <button onClick={() => setShowRoleModal(null)}>Cancel</button>
+                      <button className="primary" onClick={handleSaveRole}>Save</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Change Password Modal */}
       {showChangePwd && (
         <div className="modal-overlay">
           <div className="modal">
-            <h3>Change Password: {showChangePwd.username}</h3>
+            <h3>{showChangePwd.isOwn ? 'Change My Password' : `Reset Password: ${showChangePwd.username}`}</h3>
             <form onSubmit={handleChangePassword}>
               {showChangePwd.isOwn && (
                 <div className="form-group">
@@ -210,6 +298,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser: propCurren
           </div>
         </div>
       )}
+
+      {/* Scope Modal */}
       {showScopeModal && (
         <div className="modal-overlay">
           <div className="modal">

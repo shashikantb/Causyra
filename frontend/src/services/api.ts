@@ -70,6 +70,7 @@ export interface LogSummary {
 
 export interface User {
   username: string;
+  email?: string;
   role: string;
   allowed_apps?: string[];
 }
@@ -103,8 +104,8 @@ export const UserService = {
     return response.data;
   },
 
-  createUser: async (username: string, password: string, role: string): Promise<User> => {
-    const response = await api.post<User>('/users', { username, password, role });
+  createUser: async (username: string, email: string, password: string, role: string): Promise<User> => {
+    const response = await api.post<User>('/users', { username, email, password, role });
     return response.data;
   },
 
@@ -118,6 +119,10 @@ export const UserService = {
 
   updateUserScope: async (username: string, allowedApps: string[]): Promise<void> => {
     await api.put(`/users/${username}/scope`, { allowed_apps: allowedApps });
+  },
+
+  updateUserRole: async (username: string, role: string): Promise<void> => {
+    await api.put(`/users/${username}/role`, { role });
   }
 };
 
