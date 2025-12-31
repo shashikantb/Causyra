@@ -4,19 +4,24 @@ import LiveLogStream from './LiveLogStream';
 import OfflineRCA from './OfflineRCA';
 import Onboarding from './Onboarding';
 import AgentSetup from './AgentSetup';
-import { AppService, type Application } from '../services/api';
+import { AppService, type Application, type User } from '../services/api';
 
-const Dashboard: React.FC = () => {
-  const [selectedApp, setSelectedApp] = useState<Application | null>(null);
+interface DashboardProps {
+  selectedApp: Application | null;
+  onAppSelect: (app: Application | null) => void;
+  currentUser: User;
+}
+
+const Dashboard: React.FC<DashboardProps> = ({ selectedApp, onAppSelect, currentUser }) => {
   const [activeTab, setActiveTab] = useState<'live' | 'offline' | 'setup'>('live');
-  const [userRole, setUserRole] = useState('ADMIN'); // Default role
+  const userRole = currentUser.role;
   const [showAgentSetup, setShowAgentSetup] = useState(false);
   const [isAgentLive, setIsAgentLive] = useState(false);
 
   const handleAppSelect = (app: Application) => {
-    setSelectedApp(app);
+    onAppSelect(app);
     // If no log sources and user has write access, show setup
-    if (app.log_sources.length === 0 && userRole !== 'READ') {
+    if (app.log_sources.length === 0) {
       setShowAgentSetup(true);
     } else {
       setShowAgentSetup(false);
@@ -46,7 +51,6 @@ const Dashboard: React.FC = () => {
   if (!selectedApp) {
     return (
       <div className="dashboard-container">
-        <RoleSwitcher role={userRole} onChange={setUserRole} />
         <Onboarding onAppSelect={handleAppSelect} userRole={userRole} />
       </div>
     );
@@ -55,7 +59,6 @@ const Dashboard: React.FC = () => {
   if (showAgentSetup) {
     return (
       <div className="dashboard-container">
-         <RoleSwitcher role={userRole} onChange={setUserRole} />
          <AgentSetup 
            app={selectedApp} 
            onComplete={() => setShowAgentSetup(false)} 
@@ -68,7 +71,7 @@ const Dashboard: React.FC = () => {
   return (
     <div className="dashboard">
       <div className="top-nav">
-         <RoleSwitcher role={userRole} onChange={setUserRole} />
+         {/* Role Switcher removed as we are logged in as Admin */}
       </div>
 
       <div className="header-bar">
@@ -80,26 +83,24 @@ const Dashboard: React.FC = () => {
              Agent: {selectedApp.id.slice(0, 8)}
              <span className="agent-status-dot" style={{ background: isAgentLive ? '#28a745' : '#dc3545' }} />
            </span>
-           {userRole !== 'READ' && (
-             <button className="setup-btn" onClick={() => setShowAgentSetup(true)}>Agent Config</button>
-           )}
-           {userRole !== 'READ' && (
+           <button className="setup-btn" onClick={() => setShowAgentSetup(true)}>Agent Config</button>
+           {currentUser.role !== 'READ' && (
              <button 
                className="switch-app-btn" 
                onClick={async () => {
                  try {
-                   await AppService.deleteApplication(selectedApp.id);
-                   setSelectedApp(null);
-                 } catch (e) {
-                   // ignore
-                 }
-               }}
-             >
-               Delete Project
-             </button>
+                  await AppService.deleteApplication(selectedApp.id);
+                  onAppSelect(null);
+                } catch (e) {
+                  // ignore
+                }
+              }}
+            >
+              Delete Project
+            </button>
            )}
-           <button className="switch-app-btn" onClick={() => setSelectedApp(null)}>Switch App</button>
-        </div>
+          <button className="switch-app-btn" onClick={() => onAppSelect(null)}>Switch App</button>
+       </div>
       </div>
 
       <div className="tabs">
@@ -130,16 +131,5 @@ const Dashboard: React.FC = () => {
     </div>
   );
 };
-
-const RoleSwitcher = ({ role, onChange }: { role: string, onChange: (r: string) => void }) => (
-  <div className="role-switcher">
-    <label>Current Role: </label>
-    <select value={role} onChange={(e) => onChange(e.target.value)}>
-      <option value="ADMIN">ADMIN</option>
-      <option value="WRITE">WRITE</option>
-      <option value="READ">READ</option>
-    </select>
-  </div>
-);
 
 export default Dashboard;

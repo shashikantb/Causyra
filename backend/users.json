@@ -1,0 +1,30 @@
+{
+  "Admin": {
+    "username": "Admin",
+    "role": "ADMIN",
+    "allowed_apps": [],
+    "password_hash": "$pbkdf2-sha256$29000$xJjTGmNMCUEoBaAUwngvJQ$aVRZZTDpjvI2JNvaYUcXVNOvjaE8OJxGbRxKFAUb96c"
+  },
+  "Shashikant": {
+    "username": "Shashikant",
+    "role": "ADMIN",
+    "allowed_apps": [],
+    "password_hash": "$pbkdf2-sha256$29000$AUCIkZISopTy/v9fy3lvrQ$1c8vR7rO6DqHu/rjMpvcbzwVsO/XNAsChG9Trhy64m8"
+  },
+  "abc": {
+    "username": "abc",
+    "role": "WRITE",
+    "allowed_apps": [
+      "dc83796c-e902-459d-8296-4b7f9c38c123"
+    ],
+    "password_hash": "$pbkdf2-sha256$29000$cc4Zg/A.p5SyFgLgXAuB0A$MIpIzeejSqAHGaWICouShO1q2bUxSfnYf7XcpOnixkY"
+  },
+  "test": {
+    "username": "test",
+    "role": "READ",
+    "allowed_apps": [
+      "dc83796c-e902-459d-8296-4b7f9c38c123"
+    ],
+    "password_hash": "$pbkdf2-sha256$29000$VQohBGDMOSfEWEsJobQ2Zg$ItNdhXB4OD3LMYAsO6brey5nc/QmpgsfVy1RX2dT5mo"
+  }
+}

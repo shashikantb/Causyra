@@ -9,6 +9,15 @@ const api = axios.create({
   },
 });
 
+// Add interceptor for token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export interface LogSource {
   id: string;
   path: string;
@@ -59,6 +68,59 @@ export interface LogSummary {
   last_seen: string | null;
 }
 
+export interface User {
+  username: string;
+  role: string;
+  allowed_apps?: string[];
+}
+
+export const AuthService = {
+  login: async (username: string, password: string): Promise<string> => {
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+    const response = await api.post<{ access_token: string }>('/token', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data.access_token;
+  },
+  logout: () => {
+    localStorage.removeItem('token');
+  },
+  isAuthenticated: () => {
+    return !!localStorage.getItem('token');
+  }
+};
+
+export const UserService = {
+  getCurrentUser: async (): Promise<User> => {
+    const response = await api.get<User>('/users/me');
+    return response.data;
+  },
+  
+  getUsers: async (): Promise<User[]> => {
+    const response = await api.get<User[]>('/users');
+    return response.data;
+  },
+
+  createUser: async (username: string, password: string, role: string): Promise<User> => {
+    const response = await api.post<User>('/users', { username, password, role });
+    return response.data;
+  },
+
+  changeOwnPassword: async (oldPassword: string, newPassword: string): Promise<void> => {
+    await api.put('/users/me/password', { old_password: oldPassword, new_password: newPassword });
+  },
+
+  changeUserPassword: async (username: string, newPassword: string): Promise<void> => {
+    await api.put(`/users/${username}/password`, { new_password: newPassword });
+  },
+
+  updateUserScope: async (username: string, allowedApps: string[]): Promise<void> => {
+    await api.put(`/users/${username}/scope`, { allowed_apps: allowedApps });
+  }
+};
+
 export const AppService = {
   createApplication: async (name: string, type: string): Promise<Application> => {
     const response = await api.post<Application>('/applications', { name, type });
@@ -99,21 +161,21 @@ export const AppService = {
     return response.data;
   },
 
+  setIncidentTag: async (appId: string, incidentId: string, tag: string | null): Promise<void> => {
+    await api.post(`/applications/${appId}/incidents/${incidentId}/tag`, { tag });
+  },
+
+  analyzeLogs: async (logs: string): Promise<RCAResult> => {
+    const response = await api.post<RCAResult>('/rca/analyze', { log_content: logs });
+    return response.data;
+  },
+
   addLogSource: async (appId: string, path: string): Promise<LogSource> => {
-    const response = await api.post<LogSource>(`/applications/${appId}/logs`, { path, type: 'file' });
+    const response = await api.post<LogSource>(`/applications/${appId}/logs`, { path, type: 'FILE' });
     return response.data;
   },
 
   deleteLogSource: async (appId: string, sourceId: string): Promise<void> => {
     await api.delete(`/applications/${appId}/logs/${sourceId}`);
-  },
-
-  analyzeLogs: async (logContent: string): Promise<RCAResult> => {
-    const response = await api.post<RCAResult>('/rca/analyze', { log_content: logContent });
-    return response.data;
-  },
-
-  setIncidentTag: async (appId: string, incidentId: string, tag: string | null): Promise<void> => {
-    await api.post(`/applications/${appId}/incidents/${incidentId}/tag`, { tag });
-  },
+  }
 };
